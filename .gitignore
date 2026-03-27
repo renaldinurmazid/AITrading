@@ -1,0 +1,15 @@
+# .gitignore for AI Trading System
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+venv/
+.venv/
+env/
+logs/
+*.log
+.DS_Store
+*.egg-info/
+dist/
+build/

@@ -1,0 +1,12 @@
+{
+    "mcpServers": {
+        "ai-trading": {
+            "command": "python",
+            "args": ["mcp_server.py"],
+            "cwd": "/Users/renaldinurmazid/Programming/Project/AITrading",
+            "env": {
+                "PYTHONPATH": "/Users/renaldinurmazid/Programming/Project/AITrading"
+            }
+        }
+    }
+}
