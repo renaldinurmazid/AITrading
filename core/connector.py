@@ -1,5 +1,6 @@
 import logging
-from config import MT5_CONFIG, SYMBOL, HAS_MT5
+from config import MT5_CONFIG, SYMBOL, HAS_MT5, format_currency
+
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,8 @@ class MT5Connector:
         account = mt5.account_info()
         if account:
             logger.info(f"✅ Terhubung ke MT5 | Akun: {account.login} | "
-                        f"Server: {account.server} | Balance: ${account.balance:.2f}")
+                        f"Server: {account.server} | Balance: {format_currency(account.balance)}")
+
         else:
             logger.info("✅ Terhubung ke MT5 (Info akun tidak tersedia)")
         self.connected = True

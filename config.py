@@ -51,12 +51,22 @@ else:
     TIMEFRAME = TIMEFRAME_MAP.get(tf_str, 16385)
 
 # ─── Parameter Trading ─────────────────────────────────
-SYMBOL       = os.getenv("SYMBOL", "EURUSD")
-LOT_SIZE     = float(os.getenv("LOT_SIZE", 0.01))
-MAGIC_NUMBER = 20240101                  # ID unik EA
+SYMBOL           = os.getenv("SYMBOL", "EURUSD")
+LOT_SIZE         = float(os.getenv("LOT_SIZE", 0.01))
+MAGIC_NUMBER     = 20240101                  # ID unik EA
+ACCOUNT_CURRENCY = os.getenv("ACCOUNT_CURRENCY", "IDR").upper()
+
+def format_currency(value: float) -> str:
+    """Format nilai mata uang berdasarkan IDR atau mata uang lainnya."""
+    if ACCOUNT_CURRENCY in ["IDR", "RP"]:
+        # Standard Indonesian formatting e.g., Rp 10.000 (no decimals for IDR)
+        return f"Rp {value:,.0f}".replace(",", ".")
+    else:
+        return f"${value:,.2f}" if ACCOUNT_CURRENCY == "USD" else f"{ACCOUNT_CURRENCY} {value:,.2f}"
 
 # ─── Risk Management ───────────────────────────────────
 MAX_RISK_PERCENT  = float(os.getenv("MAX_RISK_PERCENT", 1.0))
+
 MAX_OPEN_TRADES   = int(os.getenv("MAX_OPEN_TRADES", 3))
 STOP_LOSS_PIPS    = 50
 TAKE_PROFIT_PIPS  = 100

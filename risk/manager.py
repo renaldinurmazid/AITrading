@@ -65,8 +65,9 @@ class RiskManager:
         lot     = max(sym_info.volume_min, min(lot, sym_info.volume_max))
         lot     = round(lot, 2)
 
-        logger.info(f"💰 Kalkulasi Lot | Balance: ${balance:.2f} | "
-                    f"Risk: ${risk_money:.2f} | SL: {sl_pips} pips | Lot: {lot}")
+        logger.info(f"💰 Kalkulasi Lot | Balance: {format_currency(balance)} | "
+                    f"Risk: {format_currency(risk_money)} | SL: {sl_pips} pips | Lot: {lot}")
+
         return lot
 
     def calculate_sl_tp_atr(self, df, signal: str, atr_multiplier_sl: float = 1.5,

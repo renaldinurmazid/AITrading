@@ -1,6 +1,7 @@
 import requests
 import logging
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, format_currency
+
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +53,11 @@ class TelegramNotifier:
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"📌 Simbol  : <b>{symbol}</b>\n"
             f"🎫 Ticket  : <code>{ticket}</code>\n"
-            f"💰 Profit  : <code>${profit:.2f}</code>\n"
+            f"💰 Profit  : <code>{format_currency(profit)}</code>\n"
             f"📐 Pips    : <code>{pips:.1f}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━"
         )
+
         self.send_message(msg)
 
     def notify_daily_report(self, balance: float, equity: float,
@@ -65,11 +67,12 @@ class TelegramNotifier:
         msg = (
             f"{emoji} <b>LAPORAN HARIAN</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"💼 Balance   : <code>${balance:.2f}</code>\n"
-            f"📊 Equity    : <code>${equity:.2f}</code>\n"
-            f"💰 Profit    : <code>${daily_profit:.2f}</code>\n"
+            f"💼 Balance   : <code>{format_currency(balance)}</code>\n"
+            f"📊 Equity    : <code>{format_currency(equity)}</code>\n"
+            f"💰 Profit    : <code>{format_currency(daily_profit)}</code>\n"
             f"📋 Trades    : <code>{total_trades}</code>\n"
             f"🎯 Win Rate  : <code>{win_rate:.1f}%</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━"
         )
+
         self.send_message(msg)

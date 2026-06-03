@@ -5,6 +5,8 @@ import numpy as np
 from datetime import datetime, timedelta
 from strategy.indicators import calculate_indicators
 from strategy.signals import SignalGenerator
+from config import format_currency
+
 
 
 def backtest(df_raw: pd.DataFrame, initial_balance: float = 10000.0, pip_value_standard: float = 10.0):
@@ -51,7 +53,7 @@ def backtest(df_raw: pd.DataFrame, initial_balance: float = 10000.0, pip_value_s
             balance += profit
             trades.append(profit)
             
-            print(f"   [BUY CLOSE] Candle #{i} | Exit Price: {price:.5f} | P&L Pips: {pnl_pips:.1f} | Profit: ${profit:.2f} | Balance: ${balance:.2f}")
+            print(f"   [BUY CLOSE] Candle #{i} | Exit Price: {price:.5f} | P&L Pips: {pnl_pips:.1f} | Profit: {format_currency(profit)} | Balance: {format_currency(balance)}")
             position = None
 
     # Reset logging level
@@ -66,9 +68,9 @@ def backtest(df_raw: pd.DataFrame, initial_balance: float = 10000.0, pip_value_s
     print("\n" + "=" * 45)
     print("📊 HASIL BACKTEST EXPERT ADVISOR")
     print("=" * 45)
-    print(f"Modal Awal      : ${initial_balance:.2f}")
-    print(f"Saldo Akhir     : ${balance:.2f}")
-    print(f"Total P&L       : ${total_pnl:.2f}")
+    print(f"Modal Awal      : {format_currency(initial_balance)}")
+    print(f"Saldo Akhir     : {format_currency(balance)}")
+    print(f"Total P&L       : {format_currency(total_pnl)}")
     print(f"Total Trades    : {len(trades)} (Wins: {wins}, Losses: {losses})")
     print(f"Win Rate        : {win_rate:.1f}%")
     print("=" * 45 + "\n")

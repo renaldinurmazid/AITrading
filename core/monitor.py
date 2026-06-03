@@ -1,5 +1,6 @@
 import logging
-from config import MAGIC_NUMBER, HAS_MT5
+from config import MAGIC_NUMBER, HAS_MT5, format_currency
+
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,9 @@ class PositionMonitor:
             logger.info(
                 f"  Ticket: {pos.ticket} | Simbol: {pos.symbol} | Type: {pos_type} | "
                 f"Volume: {pos.volume} | Entry: {pos.price_open} | Cur: {pos.price_current} | "
-                f"SL: {pos.sl} | TP: {pos.tp} | P&L: ${pos.profit:.2f} ({pnl_status})"
+                f"SL: {pos.sl} | TP: {pos.tp} | P&L: {format_currency(pos.profit)} ({pnl_status})"
             )
+
 
     def get_total_floating_profit(self) -> float:
         """Menghitung total floating profit/loss dari posisi terbuka."""

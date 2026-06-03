@@ -4,7 +4,8 @@ import logging
 import schedule
 from datetime import datetime
 
-from config import SYMBOL, TIMEFRAME, MAGIC_NUMBER, TRAILING_STOP, HAS_MT5
+from config import SYMBOL, TIMEFRAME, MAGIC_NUMBER, TRAILING_STOP, HAS_MT5, format_currency
+
 
 from core.connector import MT5Connector
 from core.trader import Trader
@@ -113,7 +114,7 @@ def run_ea():
 def daily_report():
     """Kirim laporan harian setiap jam 22:00."""
     if not HAS_MT5 or mt5 is None:
-        logger.info("📋 Laporan harian: [MOCK] Profit: $0.00 | Trades: 0 | Win Rate: 0%")
+        logger.info(f"📋 Laporan harian: [MOCK] Profit: {format_currency(0.0)} | Trades: 0 | Win Rate: 0%")
         notifier.notify_daily_report(
             balance=10000.0,
             equity=10000.0,
@@ -143,7 +144,7 @@ def daily_report():
         total_trades=len(profits),
         win_rate=win_rate
     )
-    logger.info(f"📋 Laporan harian dikirim | Profit: ${sum(profits):.2f}")
+    logger.info(f"📋 Laporan harian dikirim | Profit: {format_currency(sum(profits))}")
 
 
 def main():
