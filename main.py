@@ -1,214 +1,189 @@
-"""
-AI Trading System - Main Entry Point
-Run the trading bot in different modes.
-"""
-import argparse
+import os
+import time
 import logging
-import sys
+import schedule
 from datetime import datetime
-from pathlib import Path
 
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
+from config import SYMBOL, TIMEFRAME, MAGIC_NUMBER, TRAILING_STOP, HAS_MT5
 
-from config.settings import LOG_DIR, TRADING_MODE, TRADING_PAIRS
+from core.connector import MT5Connector
+from core.trader import Trader
+from core.monitor import PositionMonitor
+from strategy.indicators import get_candles, calculate_indicators
+from strategy.signals import SignalGenerator
+from risk.manager import RiskManager
+from utils.notifier import TelegramNotifier
+from utils.logger import setup_logger
 
-console = Console()
+if HAS_MT5:
+    import MetaTrader5 as mt5
+else:
+    mt5 = None
 
+logger = setup_logger()
 
-def setup_logging(verbose: bool = False):
-    """Configure logging for the application."""
-    log_level = logging.DEBUG if verbose else logging.INFO
-    log_file = LOG_DIR / f"trading_{datetime.now().strftime('%Y%m%d')}.log"
+# ─── Inisiasi Komponen ─────────────────────────────────
+connector = MT5Connector()
+trader    = Trader()
+monitor   = PositionMonitor()
+signal_gen = SignalGenerator()
+risk_mgr  = RiskManager()
+notifier  = TelegramNotifier()
 
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(log_file),
-        ],
+def run_ea():
+    """Siklus utama EA — dijalankan setiap candle baru."""
+    logger.info(f"⏰ Siklus EA | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # 1. Ambil data market
+    df = get_candles(SYMBOL, TIMEFRAME, n_candles=300)
+    
+    # Fallback to dummy data for local macOS validation/testing
+    if df.empty and not HAS_MT5:
+        logger.debug("Generating mock market data for local platform validation")
+        import numpy as np
+        dates = pd.date_range(end=datetime.now(), periods=300, freq='h')
+
+        np.random.seed(42)
+        close_prices = 1.1000 + np.cumsum(np.random.randn(300) * 0.0005)
+        high_prices = close_prices + np.random.rand(300) * 0.0010
+        low_prices = close_prices - np.random.rand(300) * 0.0010
+        open_prices = np.roll(close_prices, 1)
+        open_prices[0] = 1.1000
+        
+        df = pd.DataFrame({
+            "Open": open_prices, "High": high_prices,
+            "Low": low_prices, "Close": close_prices, "Volume": np.random.randint(100, 1000, size=300)
+        }, index=dates)
+        df.index.name = "time"
+
+    if df.empty:
+        logger.warning("Data candle kosong, skip siklus ini.")
+        return
+
+    # 2. Hitung indikator
+    df = calculate_indicators(df)
+
+    # 3. Cek signal
+    signal = signal_gen.get_signal(df)
+    strength = signal_gen.get_signal_strength(df)
+    logger.info(f"📊 Signal: {signal} | {strength}")
+
+    # Log current open positions for transparency
+    monitor.log_open_positions_summary()
+
+    if signal == "HOLD":
+        # Update trailing stop meski tidak ada sinyal baru
+        if TRAILING_STOP:
+            trader.update_trailing_stop(SYMBOL)
+        return
+
+    # 4. Validasi apakah boleh trade
+    allowed, reason = risk_mgr.is_trade_allowed(SYMBOL)
+    if not allowed:
+        logger.info(f"⚠️ Trade tidak diizinkan: {reason}")
+        return
+
+    # 5. Kalkulasi SL, TP, dan lot size
+    sl_pips, tp_pips = risk_mgr.calculate_sl_tp_atr(df, signal)
+    lot = risk_mgr.calculate_lot_size(SYMBOL, sl_pips)
+
+    # 6. Eksekusi order
+    result = trader.open_trade(
+        symbol=SYMBOL,
+        signal=signal,
+        lot=lot,
+        sl_pips=sl_pips,
+        tp_pips=tp_pips,
+        comment=f"EA-{signal[:1]}-{MAGIC_NUMBER}"
     )
 
-
-def print_banner():
-    """Print the application banner."""
-    banner = Text()
-    banner.append("🤖 ", style="bold")
-    banner.append("AI TRADING SYSTEM", style="bold cyan")
-    banner.append(" 🤖\n", style="bold")
-    banner.append(f"Powered by Gemini AI + MetaTrader 5\n", style="dim")
-    banner.append(f"Mode: {TRADING_MODE.upper()}", style="bold yellow")
-
-    console.print(Panel(banner, border_style="cyan", padding=(1, 2)))
-
-    # Trading pairs table
-    table = Table(title="📊 Trading Pairs", border_style="cyan")
-    table.add_column("Symbol", style="bold white")
-    table.add_column("Name", style="cyan")
-    table.add_column("Lot Size", style="green")
-    table.add_column("SL (pips)", style="red")
-    table.add_column("TP (pips)", style="green")
-
-    for pair in TRADING_PAIRS:
-        table.add_row(
-            pair["symbol"],
-            pair["display_name"],
-            str(pair["lot_size"]),
-            str(pair["sl_pips"]),
-            str(pair["tp_pips"]),
+    # 7. Kirim notifikasi
+    if result:
+        notifier.notify_trade_open(
+            signal=signal,
+            symbol=SYMBOL,
+            price=result["price"],
+            sl=result["sl"],
+            tp=result["tp"],
+            lot=result["lot"],
+            ticket=result["ticket"]
         )
 
-    console.print(table)
-    console.print()
 
-
-def run_bot():
-    """Run the trading bot in continuous mode."""
-    from core.trading_engine import TradingEngine
-
-    engine = TradingEngine()
-    engine.start()
-
-
-def run_single_analysis(symbol: str = None):
-    """Run a single analysis cycle."""
-    from core.trading_engine import TradingEngine
-
-    engine = TradingEngine()
-    results = engine.run_single_analysis(symbol)
-
-    for result in results:
-        sym = result.get("symbol", "Unknown")
-        action = result.get("action", "HOLD")
-        confidence = result.get("confidence", 0)
-        reasoning = result.get("reasoning", "N/A")
-
-        color = {"BUY": "green", "SELL": "red", "HOLD": "yellow"}.get(
-            action, "white"
+def daily_report():
+    """Kirim laporan harian setiap jam 22:00."""
+    if not HAS_MT5 or mt5 is None:
+        logger.info("📋 Laporan harian: [MOCK] Profit: $0.00 | Trades: 0 | Win Rate: 0%")
+        notifier.notify_daily_report(
+            balance=10000.0,
+            equity=10000.0,
+            daily_profit=0.0,
+            total_trades=0,
+            win_rate=0.0
         )
+        return
 
-        console.print(
-            Panel(
-                f"[bold {color}]{action}[/] | Confidence: {confidence}%\n\n"
-                f"{reasoning[:300]}",
-                title=f"📊 {sym}",
-                border_style=color,
-            )
-        )
+    acc = mt5.account_info()
+    if acc is None:
+        return
 
-    engine.mt5.disconnect()
-
-
-def run_status():
-    """Show current trading status."""
-    from core.trading_engine import TradingEngine
-
-    engine = TradingEngine()
-    status = engine.get_status()
-
-    # Account info
-    account = status.get("account", {})
-    console.print(
-        Panel(
-            f"Balance: ${account.get('balance', 0):,.2f}\n"
-            f"Equity: ${account.get('equity', 0):,.2f}\n"
-            f"Free Margin: ${account.get('free_margin', 0):,.2f}\n"
-            f"Mode: {account.get('mode', 'N/A')}",
-            title="💰 Account",
-            border_style="green",
-        )
+    history = mt5.history_deals_get(
+        datetime.now().replace(hour=0, minute=0),
+        datetime.now()
     )
+    deals    = [d for d in (history or []) if d.magic == MAGIC_NUMBER]
+    profits  = [d.profit for d in deals if d.entry == 1]
+    wins     = sum(1 for p in profits if p > 0)
+    win_rate = (wins / len(profits) * 100) if profits else 0
 
-    # Positions
-    positions = status.get("open_positions", [])
-    if positions:
-        table = Table(title="📋 Open Positions", border_style="blue")
-        table.add_column("Ticket")
-        table.add_column("Symbol")
-        table.add_column("Type")
-        table.add_column("Volume")
-        table.add_column("Profit", style="green")
-
-        for pos in positions:
-            table.add_row(
-                str(pos.get("ticket")),
-                pos.get("symbol"),
-                pos.get("type"),
-                str(pos.get("volume")),
-                f"${pos.get('profit', 0):.2f}",
-            )
-        console.print(table)
-    else:
-        console.print("[dim]No open positions[/]")
-
-    engine.mt5.disconnect()
-
-
-def run_dashboard():
-    """Run the web dashboard."""
-    from dashboard.app import create_app
-
-    app = create_app()
-    console.print(
-        "[bold green]🌐 Dashboard starting at http://localhost:5005[/]"
+    notifier.notify_daily_report(
+        balance=acc.balance,
+        equity=acc.equity,
+        daily_profit=sum(profits),
+        total_trades=len(profits),
+        win_rate=win_rate
     )
-    app.run(host="0.0.0.0", port=5005, debug=True)
-
-
-def run_mcp_server():
-    """Run the MCP server for AI agent integration."""
-    import asyncio
-    from mcp_server import main
-
-    console.print("[bold green]🔌 Starting MCP Server...[/]")
-    asyncio.run(main())
+    logger.info(f"📋 Laporan harian dikirim | Profit: ${sum(profits):.2f}")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="🤖 AI Trading System - Gemini AI + MetaTrader 5"
-    )
-    parser.add_argument(
-        "command",
-        choices=["run", "analyze", "status", "dashboard", "mcp"],
-        help=(
-            "Command to execute: "
-            "run=start trading bot, "
-            "analyze=single analysis, "
-            "status=show status, "
-            "dashboard=web UI, "
-            "mcp=start MCP server"
-        ),
-    )
-    parser.add_argument(
-        "--symbol",
-        type=str,
-        help="Specific symbol to analyze (e.g., EURUSD)",
-    )
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose logging",
-    )
+    logger.info("=" * 55)
+    logger.info("   🤖 EA Trading Forex Python — STARTING")
+    logger.info("=" * 55)
 
-    args = parser.parse_args()
-    setup_logging(args.verbose)
-    print_banner()
+    # Koneksi ke MT5
+    if not connector.connect():
+        if not HAS_MT5:
+            logger.warning("⚠️ EA berjalan dalam mode Simulasi/Mock karena keterbatasan OS.")
+        else:
+            logger.critical("❌ Gagal terhubung ke MT5. EA berhenti.")
+            return
 
-    if args.command == "run":
-        run_bot()
-    elif args.command == "analyze":
-        run_single_analysis(args.symbol)
-    elif args.command == "status":
-        run_status()
-    elif args.command == "dashboard":
-        run_dashboard()
-    elif args.command == "mcp":
-        run_mcp_server()
+    # Jadwal: jalankan setiap 60 detik (sesuaikan dengan timeframe)
+    schedule.every(60).seconds.do(run_ea)
+    schedule.every().day.at("22:00").do(daily_report)
+
+    notifier.send_message("🤖 <b>EA Trading Python aktif!</b>\n"
+                          f"📌 Simbol: {SYMBOL} | TF: {os.getenv('TIMEFRAME', 'H1').upper()}")
+
+    logger.info(f"✅ EA aktif | Simbol: {SYMBOL} | Monitoring dimulai...")
+
+    # Run the EA cycle once immediately on start for validation
+    run_ea()
+
+    try:
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("⛔ EA dihentikan oleh user.")
+    except Exception as e:
+        logger.critical(f"❌ Error tidak terduga: {e}", exc_info=True)
+    finally:
+        connector.disconnect()
+        notifier.send_message("⛔ <b>EA Trading Python berhenti.</b>")
 
 
 if __name__ == "__main__":
+    import pandas as pd # Import pandas here as it is needed in run_ea fallback
     main()

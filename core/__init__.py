@@ -1,1 +1,1 @@
-# Core package
+# EA Trading Forex Core Package

@@ -1,0 +1,25 @@
+2026-06-03 09:11:50,468 [INFO] =======================================================
+2026-06-03 09:11:50,468 [INFO]    🤖 EA Trading Forex Python — STARTING
+2026-06-03 09:11:50,468 [INFO] =======================================================
+2026-06-03 09:11:50,468 [ERROR] Gagal terhubung ke MT5: Library MetaTrader5 hanya didukung di Windows.
+2026-06-03 09:11:50,468 [WARNING] ⚠️ EA berjalan dalam mode Simulasi/Mock karena keterbatasan OS.
+2026-06-03 09:11:56,419 [INFO] =======================================================
+2026-06-03 09:11:56,419 [INFO]    🤖 EA Trading Forex Python — STARTING
+2026-06-03 09:11:56,419 [INFO] =======================================================
+2026-06-03 09:11:56,419 [ERROR] Gagal terhubung ke MT5: Library MetaTrader5 hanya didukung di Windows.
+2026-06-03 09:11:56,419 [WARNING] ⚠️ EA berjalan dalam mode Simulasi/Mock karena keterbatasan OS.
+2026-06-03 09:11:56,420 [INFO] ✅ EA aktif | Simbol: EURUSD | Monitoring dimulai...
+2026-06-03 09:11:56,420 [INFO] ⏰ Siklus EA | 2026-06-03 09:11:56
+2026-06-03 09:11:56,426 [INFO] 📊 Signal: HOLD | {'rsi': np.float64(58.85), 'macd_hist': np.float64(0.00013), 'ema_spread': np.float64(-0.00015), 'atr': np.float64(0.00104), 'trend': 'SIDEWAYS'}
+2026-06-03 09:11:56,426 [INFO] ℹ️ Tidak ada posisi terbuka yang dipantau oleh EA.
+2026-06-03 09:14:23,477 [INFO] =======================================================
+2026-06-03 09:14:23,477 [INFO]    🤖 EA Trading Forex Python — STARTING
+2026-06-03 09:14:23,477 [INFO] =======================================================
+2026-06-03 09:14:23,478 [ERROR] Gagal terhubung ke MT5: Library MetaTrader5 hanya didukung di Windows.
+2026-06-03 09:14:23,478 [WARNING] ⚠️ EA berjalan dalam mode Simulasi/Mock karena keterbatasan OS.
+2026-06-03 09:14:23,478 [INFO] ✅ EA aktif | Simbol: EURUSD | Monitoring dimulai...
+2026-06-03 09:14:23,478 [INFO] ⏰ Siklus EA | 2026-06-03 09:14:23
+2026-06-03 09:14:23,496 [INFO] 📊 Signal: HOLD | {'rsi': np.float64(58.85), 'macd_hist': np.float64(0.00013), 'ema_spread': np.float64(-0.00015), 'atr': np.float64(0.00104), 'trend': 'SIDEWAYS'}
+2026-06-03 09:14:23,496 [INFO] ℹ️ Tidak ada posisi terbuka yang dipantau oleh EA.
+2026-06-03 09:14:54,886 [INFO] ⛔ EA dihentikan oleh user.
+2026-06-03 09:14:54,887 [INFO] 🔌 Koneksi MT5 diputus.
