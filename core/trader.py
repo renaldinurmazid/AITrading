@@ -6,7 +6,26 @@ logger = logging.getLogger(__name__)
 if HAS_MT5:
     import MetaTrader5 as mt5
 else:
-    # Safe mock definitions for constants
+    # Safe mock for non-Windows platforms (like macOS) to allow compilation/backtesting
+    class MockPosition:
+        def __init__(self):
+            self.ticket = 123456
+            self.magic = MAGIC_NUMBER
+            self.symbol = SYMBOL
+            self.volume = 0.01
+            self.type = 0  # 0: BUY, 1: SELL
+            self.price_open = 1.08500
+            self.price_current = 1.08580
+            self.sl = 1.08420
+            self.tp = 1.08620
+            self.profit = 5.0
+            
+    class MockOrderResult:
+        def __init__(self):
+            self.retcode = 10009  # mt5.TRADE_RETCODE_DONE
+            self.order = 123456
+            self.comment = "Mock Success"
+
     class MockMT5:
         ORDER_TYPE_BUY = 0
         ORDER_TYPE_SELL = 1
@@ -16,85 +35,75 @@ else:
         ORDER_FILLING_IOC = 1
         TRADE_RETCODE_DONE = 10009
         
-        def symbol_info_tick(self, symbol): return None
-        def symbol_info(self, symbol): return None
-        def order_send(self, request): return None
-        def positions_get(self, **kwargs): return []
+        def symbol_info_tick(self, symbol):
+            class Tick:
+                bid = 1.08580
+                ask = 1.08585
+            return Tick()
+            
+        def symbol_info(self, symbol):
+            class Sym:
+                point = 0.00001
+                digits = 5
+                spread = 3.0
+            return Sym()
+            
+        def order_send(self, request):
+            return MockOrderResult()
+            
+        def positions_get(self, **kwargs):
+            return [MockPosition()]
+            
     mt5 = MockMT5()
 
-class Trader:
-    """Mengirim dan mengelola order ke MetaTrader 5."""
+class ScalpingTrader:
+    """Eksekusi order scalping dengan manajemen breakeven & trailing stop."""
 
-    def open_trade(self, symbol: str, signal: str,
-                   lot: float, sl_pips: float, tp_pips: float,
-                   comment: str = "EA-Python") -> dict:
-        """
-        Buka posisi baru.
-        signal: 'BUY' atau 'SELL'
-        """
+    def open_trade(self, symbol: str, signal: str, lot: float,
+                   sl: float, tp: float) -> dict:
+        """Buka posisi scalping baru."""
         if not HAS_MT5:
-            logger.warning(f"⚠️ [MOCK TRADE] Buka posisi {signal} | Simbol: {symbol} | Lot: {lot} | SL: {sl_pips} pips | TP: {tp_pips} pips")
-            # Return a simulated result for testing
-            import random
-            mock_ticket = random.randint(100000, 999999)
+            logger.warning(f"⚠️ [MOCK TRADE] Buka posisi {signal} | Simbol: {symbol} | Lot: {lot} | SL: {sl} | TP: {tp}")
             return {
-                "ticket": mock_ticket,
+                "ticket": 123456,
                 "signal": signal,
-                "price":  1.1000,
-                "sl": 1.0950 if signal == "BUY" else 1.1050,
-                "tp": 1.1100 if signal == "BUY" else 1.0900,
+                "price":  1.08500,
+                "sl": sl, "tp": tp,
                 "lot": lot,
             }
 
-        sym_info = mt5.symbol_info_tick(symbol)
-        if sym_info is None:
-            logger.error(f"Tidak bisa ambil tick untuk {symbol}")
+        tick = mt5.symbol_info_tick(symbol)
+        sym  = mt5.symbol_info(symbol)
+        if not tick or not sym:
             return {}
-
-        point_info = mt5.symbol_info(symbol)
-        if point_info is None:
-            logger.error(f"Tidak bisa ambil data point untuk {symbol}")
-            return {}
-        
-        point = point_info.point
-        pip   = 10 * point
 
         if signal == "BUY":
             order_type = mt5.ORDER_TYPE_BUY
-            price      = sym_info.ask
-            sl         = round(price - sl_pips * pip, 5)
-            tp         = round(price + tp_pips * pip, 5)
+            price      = tick.ask
         elif signal == "SELL":
             order_type = mt5.ORDER_TYPE_SELL
-            price      = sym_info.bid
-            sl         = round(price + sl_pips * pip, 5)
-            tp         = round(price - tp_pips * pip, 5)
+            price      = tick.bid
         else:
             return {}
 
         request = {
-            "action":      mt5.TRADE_ACTION_DEAL,
-            "symbol":      symbol,
-            "volume":      lot,
-            "type":        order_type,
-            "price":       price,
-            "sl":          sl,
-            "tp":          tp,
-            "deviation":   20,
-            "magic":       MAGIC_NUMBER,
-            "comment":     comment,
-            "type_time":   mt5.ORDER_TIME_GTC,
+            "action":       mt5.TRADE_ACTION_DEAL,
+            "symbol":       symbol,
+            "volume":       lot,
+            "type":         order_type,
+            "price":        price,
+            "sl":           sl,
+            "tp":           tp,
+            "deviation":    10,           # Scalping butuh eksekusi ketat
+            "magic":        MAGIC_NUMBER,
+            "comment":      f"SCALP-{signal[:1]}",
+            "type_time":    mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
 
         result = mt5.order_send(request)
-
-        if result is None:
-            logger.error("Gagal mengirim order: order_send menghasilkan None")
-            return {}
-
-        if result.retcode == mt5.TRADE_RETCODE_DONE:
-            logger.info(f"✅ ORDER {signal} | Ticket: {result.order} | "
+        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+            logger.info(f"✅ SCALP {signal} OPEN | Ticket: {result.order} | "
                         f"Price: {price} | SL: {sl} | TP: {tp} | Lot: {lot}")
             return {
                 "ticket": result.order,
@@ -103,87 +112,142 @@ class Trader:
                 "sl": sl, "tp": tp,
                 "lot": lot,
             }
-        else:
-            logger.error(f"❌ Order gagal | Retcode: {result.retcode} | "
-                         f"Comment: {result.comment}")
-            return {}
 
-    def close_position(self, ticket: int) -> bool:
-        """Tutup posisi berdasarkan ticket number."""
+        retcode = result.retcode if result else "None"
+        comment = result.comment if result else "No response"
+        logger.error(f"❌ Order gagal [{retcode}]: {comment}")
+        return {}
+
+    def manage_breakeven(self, symbol: str):
+        """
+        Geser SL ke breakeven (harga entry) setelah profit BREAKEVEN_PIPS.
+        Ini melindungi profit awal dari scalping.
+        """
+        positions = mt5.positions_get(symbol=symbol)
+        if not positions:
+            return
+
+        sym   = mt5.symbol_info(symbol)
+        tick  = mt5.symbol_info_tick(symbol)
+        if not sym or not tick:
+            return
+        point = sym.point
+        pip   = 10 * point
+
+        for pos in positions:
+            if pos.magic != MAGIC_NUMBER:
+                continue
+
+            entry      = pos.price_open
+            current_p  = tick.bid if pos.type == 0 else tick.ask
+            profit_pips = 0
+
+            if pos.type == 0:   # BUY
+                profit_pips = (current_p - entry) / pip
+                if profit_pips >= BREAKEVEN_PIPS and pos.sl < entry:
+                    new_sl = round(entry + 1 * pip, sym.digits)  # BE +1 pip
+                    self._modify_sl_tp(pos.ticket, new_sl, pos.tp)
+                    logger.info(f"🔒 BREAKEVEN | Ticket: {pos.ticket} | "
+                                f"Profit: {profit_pips:.1f}p | SL → {new_sl}")
+
+            elif pos.type == 1:  # SELL
+                profit_pips = (entry - current_p) / pip
+                if profit_pips >= BREAKEVEN_PIPS and (pos.sl > entry or pos.sl == 0):
+                    new_sl = round(entry - 1 * pip, sym.digits)  # BE -1 pip
+                    self._modify_sl_tp(pos.ticket, new_sl, pos.tp)
+                    logger.info(f"🔒 BREAKEVEN | Ticket: {pos.ticket} | "
+                                f"Profit: {profit_pips:.1f}p | SL → {new_sl}")
+
+    def manage_trailing_stop(self, symbol: str):
+        """
+        Trailing stop aktif setelah profit TRAILING_START pips.
+        Geser SL setiap TRAILING_STEP pips mengikuti harga.
+        """
+        positions = mt5.positions_get(symbol=symbol)
+        if not positions:
+            return
+
+        sym   = mt5.symbol_info(symbol)
+        tick  = mt5.symbol_info_tick(symbol)
+        if not sym or not tick:
+            return
+        point = sym.point
+        pip   = 10 * point
+
+        for pos in positions:
+            if pos.magic != MAGIC_NUMBER:
+                continue
+
+            entry = pos.price_open
+
+            if pos.type == 0:   # BUY
+                current   = tick.bid
+                profit_p  = (current - entry) / pip
+                if profit_p >= TRAILING_START:
+                    new_sl = round(current - TRAILING_STEP * pip, sym.digits)
+                    if new_sl > pos.sl:
+                        self._modify_sl_tp(pos.ticket, new_sl, pos.tp)
+                        logger.debug(f"🔄 TRAIL BUY | Ticket: {pos.ticket} | "
+                                     f"SL: {pos.sl} → {new_sl}")
+
+            elif pos.type == 1:  # SELL
+                current   = tick.ask
+                profit_p  = (entry - current) / pip
+                if profit_p >= TRAILING_START:
+                    new_sl = round(current + TRAILING_STEP * pip, sym.digits)
+                    if new_sl < pos.sl or pos.sl == 0:
+                        self._modify_sl_tp(pos.ticket, new_sl, pos.tp)
+                        logger.debug(f"🔄 TRAIL SELL | Ticket: {pos.ticket} | "
+                                     f"SL: {pos.sl} → {new_sl}")
+
+    def _modify_sl_tp(self, ticket: int, sl: float, tp: float):
         if not HAS_MT5:
-            logger.warning(f"⚠️ [MOCK CLOSE] Tutup posisi Ticket: {ticket}")
-            return True
-
-        position = mt5.positions_get(ticket=ticket)
-        if not position:
-            logger.warning(f"Posisi ticket {ticket} tidak ditemukan")
-            return False
-
-        pos = position[0]
-        sym_info = mt5.symbol_info_tick(pos.symbol)
-        close_type = mt5.ORDER_TYPE_SELL if pos.type == 0 else mt5.ORDER_TYPE_BUY
-        close_price = sym_info.bid if pos.type == 0 else sym_info.ask
+            logger.debug(f"[MOCK SLTP] Modify Ticket: {ticket} | SL: {sl} | TP: {tp}")
+            return
 
         request = {
-            "action":      mt5.TRADE_ACTION_DEAL,
-            "symbol":      pos.symbol,
-            "volume":      pos.volume,
-            "type":        close_type,
-            "position":    ticket,
-            "price":       close_price,
-            "deviation":   20,
-            "magic":       MAGIC_NUMBER,
-            "comment":     "EA-Close",
-            "type_time":   mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "action":   mt5.TRADE_ACTION_SLTP,
+            "position": ticket,
+            "sl":       sl,
+            "tp":       tp,
         }
-
         result = mt5.order_send(request)
-        if result.retcode == mt5.TRADE_RETCODE_DONE:
-            logger.info(f"✅ Posisi {ticket} ditutup | Profit: {pos.profit:.2f}")
-            return True
+        if result and result.retcode != mt5.TRADE_RETCODE_DONE:
+            logger.warning(f"Gagal modify SL/TP [{result.retcode}]: {result.comment}")
 
-        logger.error(f"❌ Gagal tutup posisi {ticket}: {result.comment}")
-        return False
-
-    def update_trailing_stop(self, symbol: str = SYMBOL):
-        """Update trailing stop untuk semua posisi terbuka."""
+    def close_all_positions(self, symbol: str, reason: str = "EA-Close"):
+        """Tutup semua posisi (dipakai saat sesi tutup atau darurat)."""
         if not HAS_MT5:
+            logger.warning(f"⚠️ [MOCK CLOSE ALL] Tutup semua posisi | Simbol: {symbol} | Alasan: {reason}")
             return
 
         positions = mt5.positions_get(symbol=symbol)
         if not positions:
             return
 
-        sym_info = mt5.symbol_info(symbol)
-        point    = sym_info.point
-        pip      = 10 * point
-        tick     = mt5.symbol_info_tick(symbol)
-
         for pos in positions:
             if pos.magic != MAGIC_NUMBER:
                 continue
-
-            if pos.type == 0:   # BUY
-                new_sl = round(tick.bid - TRAILING_PIPS * pip, 5)
-                if new_sl > pos.sl:
-                    self._modify_sl(pos.ticket, new_sl)
-
-            elif pos.type == 1:  # SELL
-                new_sl = round(tick.ask + TRAILING_PIPS * pip, 5)
-                if new_sl < pos.sl or pos.sl == 0:
-                    self._modify_sl(pos.ticket, new_sl)
-
-    def _modify_sl(self, ticket: int, new_sl: float):
-        """Modifikasi SL sebuah posisi."""
-        if not HAS_MT5:
-            return
-
-        request = {
-            "action":   mt5.TRADE_ACTION_SLTP,
-            "position": ticket,
-            "sl":       new_sl,
-        }
-        result = mt5.order_send(request)
-        if result.retcode == mt5.TRADE_RETCODE_DONE:
-            logger.debug(f"✅ Trailing stop diupdate | Ticket: {ticket} | SL: {new_sl}")
+            tick = mt5.symbol_info_tick(symbol)
+            if not tick:
+                continue
+            close_type  = mt5.ORDER_TYPE_SELL if pos.type == 0 \
+                          else mt5.ORDER_TYPE_BUY
+            close_price = tick.bid if pos.type == 0 else tick.ask
+            request = {
+                "action":       mt5.TRADE_ACTION_DEAL,
+                "symbol":       symbol,
+                "volume":       pos.volume,
+                "type":         close_type,
+                "position":     pos.ticket,
+                "price":        close_price,
+                "deviation":    10,
+                "magic":        MAGIC_NUMBER,
+                "comment":      reason,
+                "type_time":    mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC,
+            }
+            result = mt5.order_send(request)
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                logger.info(f"✅ Posisi {pos.ticket} ditutup | "
+                            f"Profit: ${pos.profit:.2f} | Alasan: {reason}")

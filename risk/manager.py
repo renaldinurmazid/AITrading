@@ -16,104 +16,122 @@ else:
         class SymbolInfo:
             def __init__(self):
                 self.point = 0.00001
+                self.digits = 5
                 self.trade_tick_value = 1.0
                 self.volume_min = 0.01
                 self.volume_max = 500.0
                 self.volume_step = 0.01
+                self.spread = 5.0  # 5 points = 0.5 pips
+        class SymbolInfoTick:
+            def __init__(self):
+                self.bid = 1.08500
+                self.ask = 1.08505
         
         def account_info(self):
             return self.AccountInfo()
         def symbol_info(self, symbol):
             return self.SymbolInfo()
+        def symbol_info_tick(self, symbol):
+            return self.SymbolInfoTick()
         def positions_get(self, **kwargs):
             return []
     mt5 = MockMT5()
 
-class RiskManager:
-    """Kalkulasi lot size dan level SL/TP berbasis ATR & risk percent."""
+class ScalpingRiskManager:
+    """
+    Risk management khusus scalping:
+    - Lot berbasis % risk dari balance
+    - SL fixed 8-12 pips
+    - TP 5-15 pips (R:R minimal 1:1.2)
+    - Breakeven otomatis setelah +5 pips
+    - Max 2 posisi simultan
+    """
 
-    def calculate_lot_size(self, symbol: str, sl_pips: float,
-                           risk_percent: float = MAX_RISK_PERCENT) -> float:
+    def check_spread(self, symbol: str) -> tuple:
         """
-        Hitung lot size berdasarkan risk percent dari balance.
-        Formula: Lot = (Balance * Risk%) / (SL in pips * pip value)
+        Cek apakah spread saat ini acceptable untuk scalping.
+        Tolak jika spread > MAX_SPREAD_PIPS.
         """
-        account = mt5.account_info()
-        sym_info = mt5.symbol_info(symbol)
+        tick = mt5.symbol_info_tick(symbol)
+        sym  = mt5.symbol_info(symbol)
+        if not tick or not sym:
+            return False, 99.0
 
-        if account is None or sym_info is None:
-            logger.error("Gagal ambil info akun/simbol untuk kalkulasi lot")
-            return sym_info.volume_min if sym_info else 0.01
+        spread_pips = sym.spread / 10  # Convert points ke pips
+        if spread_pips > MAX_SPREAD_PIPS:
+            logger.warning(f"⚠️ Spread terlalu lebar: {spread_pips:.1f} pips > {MAX_SPREAD_PIPS} pips")
+            return False, spread_pips
 
-        balance    = account.balance
-        risk_money = balance * (risk_percent / 100)
-        point      = sym_info.point
-        pip_value  = sym_info.trade_tick_value
+        return True, spread_pips
 
-        # Pip value per lot = (10 * point / point) * tick_value
-        pip_val_per_lot = (10 * point / point) * pip_value
-        sl_money        = sl_pips * pip_val_per_lot
+    def calculate_lot(self, symbol: str, sl_pips: float) -> float:
+        """
+        Hitung lot size berdasarkan max risk per trade.
+        Untuk scalping: biasanya 0.5% dari balance.
+        """
+        acc     = mt5.account_info()
+        sym     = mt5.symbol_info(symbol)
+        if not acc or not sym:
+            return sym.volume_min if sym else 0.01
 
-        if sl_money <= 0:
-            return sym_info.volume_min
+        risk_money     = acc.balance * (MAX_RISK_PERCENT / 100)
+        pip_value      = sym.trade_tick_value
+        pip_val_per_lot = pip_value * 10
 
-        raw_lot = risk_money / sl_money
+        lot = risk_money / (sl_pips * pip_val_per_lot)
+        lot = math.floor(lot / sym.volume_step) * sym.volume_step
+        lot = max(sym.volume_min, min(lot, sym.volume_max))
+        lot = round(lot, 2)
 
-        # Normalisasi ke volume step broker
-        step    = sym_info.volume_step
-        lot     = math.floor(raw_lot / step) * step
-        lot     = max(sym_info.volume_min, min(lot, sym_info.volume_max))
-        lot     = round(lot, 2)
-
-        logger.info(f"💰 Kalkulasi Lot | Balance: {format_currency(balance)} | "
-                    f"Risk: {format_currency(risk_money)} | SL: {sl_pips} pips | Lot: {lot}")
-
+        logger.info(f"📦 Lot Size | Balance: ${acc.balance:.0f} | "
+                    f"Risk: ${risk_money:.2f} ({MAX_RISK_PERCENT}%) | "
+                    f"SL: {sl_pips}p | Lot: {lot}")
         return lot
 
-    def calculate_sl_tp_atr(self, df, signal: str, atr_multiplier_sl: float = 1.5,
-                             atr_multiplier_tp: float = 3.0) -> tuple:
+    def get_sl_tp(self, symbol: str, signal: str,
+                  price: float) -> tuple:
         """
-        Hitung SL dan TP dinamis berdasarkan ATR.
-        SL = ATR * 1.5 | TP = ATR * 3.0 (Risk:Reward = 1:2)
+        Hitung level SL dan TP dalam harga aktual.
+        SL: 8 pips | TP: 10 pips (R:R = 1:1.25)
         """
-        if df.empty or "atr" not in df.columns or df["atr"].isna().all():
-            return STOP_LOSS_PIPS, TAKE_PROFIT_PIPS
+        sym   = mt5.symbol_info(symbol)
+        point = sym.point if sym else 0.00001
+        pip   = 10 * point
+        digits = sym.digits if sym else 5
 
-        atr    = df.iloc[-1]["atr"]
-        sl_pts = round(atr * atr_multiplier_sl, 5)
-        tp_pts = round(atr * atr_multiplier_tp, 5)
+        sl_price = tp_price = 0.0
+        if signal == "BUY":
+            sl_price = round(price - SL_PIPS * pip, digits)
+            tp_price = round(price + TP_PIPS * pip, digits)
+        elif signal == "SELL":
+            sl_price = round(price + SL_PIPS * pip, digits)
+            tp_price = round(price - TP_PIPS * pip, digits)
 
-        sym    = mt5.symbol_info(SYMBOL)
-        point  = sym.point if sym else 0.00001
-        sl_pips = round(sl_pts / (10 * point))
-        tp_pips = round(tp_pts / (10 * point))
+        rr = round(TP_PIPS / SL_PIPS, 2)
+        logger.info(f"🎯 SL: {sl_price} ({SL_PIPS}p) | TP: {tp_price} ({TP_PIPS}p) | R:R 1:{rr}")
+        return sl_price, tp_price
 
-        logger.debug(f"ATR-based | SL: {sl_pips} pips | TP: {tp_pips} pips | R:R 1:2")
-        return sl_pips, tp_pips
-
-    def count_open_trades(self, symbol: str = None) -> int:
-        """Hitung jumlah posisi terbuka."""
-        if HAS_MT5:
-            import MetaTrader5 as native_mt5
-            positions = native_mt5.positions_get(symbol=symbol) if symbol \
-                        else native_mt5.positions_get(magic=MAGIC_NUMBER)
-            return len(positions) if positions else 0
-        else:
-            positions = mt5.positions_get(symbol=symbol)
-            return len(positions) if positions else 0
+    def count_open_trades(self) -> int:
+        positions = mt5.positions_get(magic=MAGIC_NUMBER)
+        return len(positions) if positions else 0
 
     def is_trade_allowed(self, symbol: str) -> tuple:
-        """Validasi apakah trade boleh dibuka."""
-        open_trades = self.count_open_trades(symbol)
+        """Validasi semua kondisi sebelum buka posisi."""
+        # Cek max trades
+        open_t = self.count_open_trades()
+        if open_t >= MAX_OPEN_TRADES:
+            return False, f"Max {MAX_OPEN_TRADES} posisi terbuka"
 
-        if open_trades >= MAX_OPEN_TRADES:
-            return False, f"Max trade ({MAX_OPEN_TRADES}) sudah tercapai"
+        # Cek spread
+        spread_ok, spread_val = self.check_spread(symbol)
+        if not spread_ok:
+            return False, f"Spread {spread_val:.1f}p terlalu lebar"
 
+        # Cek margin
         acc = mt5.account_info()
         if acc is None:
             return False, "Gagal mendapatkan info akun"
+        if acc.margin_level > 0 and acc.margin_level < 200:
+            return False, f"Margin level rendah: {acc.margin_level:.0f}%"
 
-        if acc.margin_level > 0 and acc.margin_level < 150:
-            return False, f"Margin level terlalu rendah: {acc.margin_level:.1f}%"
-
-        return True, "OK"
+        return True, f"OK | Spread: {spread_val:.1f}p | Posisi: {open_t}/{MAX_OPEN_TRADES}"

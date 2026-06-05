@@ -18,81 +18,65 @@ MT5_CONFIG = {
     "server":   os.getenv("MT5_SERVER", ""),
 }
 
-# Timeframe mapping helper for fallbacks
-TIMEFRAME_MAP = {
-    "M1": 1,
-    "M2": 2,
-    "M3": 3,
-    "M4": 4,
-    "M5": 5,
-    "M6": 6,
-    "M10": 10,
-    "M12": 12,
-    "M15": 15,
-    "M20": 20,
-    "M30": 30,
-    "H1": 16385,
-    "H2": 16386,
-    "H3": 16387,
-    "H4": 16388,
-    "H6": 16390,
-    "H8": 16392,
-    "H12": 16396,
-    "D1": 16408,
-    "W1": 32769,
-    "MN1": 49153
-}
-
-tf_str = os.getenv("TIMEFRAME", "H1").upper()
-
-if HAS_MT5:
-    TIMEFRAME = getattr(mt5, f"TIMEFRAME_{tf_str}", mt5.TIMEFRAME_H1)
+# ─── Simbol & Timeframe ────────────────────────────────
+SYMBOL          = os.getenv("SYMBOL", "EURUSD")
+if HAS_MT5 and mt5 is not None:
+    TF_ENTRY    = mt5.TIMEFRAME_M5    # M5 untuk entry
+    TF_TREND    = mt5.TIMEFRAME_M15   # M15 untuk filter trend
 else:
-    TIMEFRAME = TIMEFRAME_MAP.get(tf_str, 16385)
+    TF_ENTRY    = 5
+    TF_TREND    = 15
+MAGIC_NUMBER    = 20240501            # ID unik EA scalping
 
-# ─── Parameter Trading ─────────────────────────────────
-SYMBOL           = os.getenv("SYMBOL", "EURUSD")
-LOT_SIZE         = float(os.getenv("LOT_SIZE", 0.01))
-MAGIC_NUMBER     = 20240101                  # ID unik EA
-ACCOUNT_CURRENCY = os.getenv("ACCOUNT_CURRENCY", "IDR").upper()
-
-def format_currency(value: float) -> str:
-    """Format nilai mata uang berdasarkan IDR atau mata uang lainnya."""
-    if ACCOUNT_CURRENCY in ["IDR", "RP"]:
-        # Standard Indonesian formatting e.g., Rp 10.000 (no decimals for IDR)
-        return f"Rp {value:,.0f}".replace(",", ".")
-    else:
-        return f"${value:,.2f}" if ACCOUNT_CURRENCY == "USD" else f"{ACCOUNT_CURRENCY} {value:,.2f}"
+# ─── Parameter Scalping ────────────────────────────────
+TP_PIPS         = int(os.getenv("TP_PIPS", 10))        # Target 5-15 pips
+SL_PIPS         = int(os.getenv("SL_PIPS", 8))         # Stop loss 8-12 pips
+BREAKEVEN_PIPS  = int(os.getenv("BREAKEVEN_PIPS", 5))  # Geser SL ke BE setelah +5p
+TRAILING_START  = int(os.getenv("TRAILING_START_PIPS", 7))   # Mulai trailing
+TRAILING_STEP   = int(os.getenv("TRAILING_STEP_PIPS", 3))    # Langkah trailing
 
 # ─── Risk Management ───────────────────────────────────
-MAX_RISK_PERCENT  = float(os.getenv("MAX_RISK_PERCENT", 1.0))
+MAX_RISK_PERCENT = float(os.getenv("MAX_RISK_PERCENT", 0.5))  # 0.5% per trade
+MAX_OPEN_TRADES  = int(os.getenv("MAX_OPEN_TRADES", 2))
+MAX_SPREAD_PIPS  = float(os.getenv("MAX_SPREAD_PIPS", 2.0))  # Reject jika spread > 2p
+LOT_SIZE         = float(os.getenv("LOT_SIZE", 0.01))
 
-MAX_OPEN_TRADES   = int(os.getenv("MAX_OPEN_TRADES", 3))
-STOP_LOSS_PIPS    = 50
-TAKE_PROFIT_PIPS  = 100
-TRAILING_STOP     = True
-TRAILING_PIPS     = 20
+# ─── Indikator M5 (Entry) ──────────────────────────────
+EMA_FAST_M5      = 9     # EMA cepat untuk entry
+EMA_SLOW_M5      = 21    # EMA lambat untuk entry
+RSI_PERIOD_M5    = 7     # RSI lebih pendek untuk scalping
+RSI_OB           = 70    # Overbought
+RSI_OS           = 30    # Oversold
+STOCH_K          = 5     # Stochastic %K
+STOCH_D          = 3     # Stochastic %D
+STOCH_SMOOTH     = 3
+STOCH_OB         = 80    # Stoch overbought
+STOCH_OS         = 20    # Stoch oversold
+BB_PERIOD        = 20    # Bollinger Bands
 
-# ─── Parameter Indikator ───────────────────────────────
-EMA_FAST     = 21
-EMA_SLOW     = 50
-EMA_TREND    = 200
-RSI_PERIOD   = 14
-RSI_OVERBOUGHT = 70
-RSI_OVERSOLD   = 30
-MACD_FAST    = 12
-MACD_SLOW    = 26
-MACD_SIGNAL  = 9
-BB_PERIOD    = 20
-BB_STD       = 2.0
+# ─── Indikator M15 (Trend Filter) ──────────────────────
+EMA_MID_M15      = 50    # Trend menengah
+EMA_TREND_M15    = 200   # Trend utama
 
-# ─── Jadwal Trading ────────────────────────────────────
-TRADING_SESSIONS = {
-    "london":   {"start": "08:00", "end": "16:00"},
-    "new_york": {"start": "13:00", "end": "21:00"},
-}
-AVOID_NEWS_MINUTES = 30   # Hindari 30 menit sebelum/sesudah berita
+# ─── Session Trading (UTC+0) ───────────────────────────
+LONDON_OPEN      = "07:00"
+LONDON_CLOSE     = "16:00"
+NY_OPEN          = "12:00"
+NY_CLOSE         = "20:00"
+OVERLAP_START    = "12:00"  # London-NY overlap (paling aktif)
+OVERLAP_END      = "16:00"
 
 # ─── Telegram ──────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# ─── Format Currency Utility ───────────────────────────
+ACCOUNT_CURRENCY = os.getenv("ACCOUNT_CURRENCY", "USD").upper()
+
+def format_currency(value: float) -> str:
+    """Format nilai mata uang."""
+    if ACCOUNT_CURRENCY in ["IDR", "RP"]:
+        return f"Rp {value:,.0f}".replace(",", ".")
+    else:
+        return f"${value:,.2f}" if ACCOUNT_CURRENCY == "USD" else f"{ACCOUNT_CURRENCY} {value:,.2f}"
+

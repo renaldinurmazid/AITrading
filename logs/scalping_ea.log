@@ -1,0 +1,6 @@
+2026-06-05 09:34:05,917 [INFO] ==========================================================
+2026-06-05 09:34:05,917 [INFO]   ⚡ EA SCALPING FOREX M5/M15 — STARTING
+2026-06-05 09:34:05,917 [INFO] ==========================================================
+2026-06-05 09:34:05,917 [ERROR] Gagal terhubung ke MT5: Library MetaTrader5 hanya didukung di Windows.
+2026-06-05 09:34:05,917 [WARNING] ⚠️ EA berjalan dalam mode Simulasi/Mock karena keterbatasan OS.
+2026-06-05 09:34:05,917 [INFO] ✅ EA aktif | EURUSD | Siklus: 10 detik | TP: 10p | SL: 8p
